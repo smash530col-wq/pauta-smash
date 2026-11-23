@@ -1,0 +1,16 @@
+{
+  "appId": "com.smash530.pauta",
+  "appName": "Pauta",
+  "webDir": "www",
+  "backgroundColor": "#0F1115",
+  "server": {
+    "url": "https://smash530col-wq.github.io/pauta-smash/app/",
+    "cleartext": false
+  },
+  "android": {
+    "allowMixedContent": false
+  },
+  "ios": {
+    "contentInset": "never"
+  }
+}

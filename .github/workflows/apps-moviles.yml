@@ -1,0 +1,119 @@
+# Compila la app "Pauta" para Android (APK) e iPhone (IPA sin firmar) en la nube de GitHub.
+# La app abre la versión publicada en https://smash530col-wq.github.io/pauta-smash/app/,
+# así que los cambios de la app web llegan solos sin reinstalar.
+name: Apps móviles
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "movil/**"
+      - ".github/workflows/apps-moviles.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    name: Android (APK)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: movil
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Instalar Capacitor
+        run: npm install --no-audit --no-fund
+      - name: Crear proyecto Android
+        run: npx cap add android
+      - name: Poner ícono y pantalla de inicio
+        run: |
+          RES=android/app/src/main/res
+          rm -rf "$RES/mipmap-anydpi-v26"
+          for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            cp "icons/android/$d.png" "$RES/mipmap-$d/ic_launcher.png"
+            cp "icons/android/$d.png" "$RES/mipmap-$d/ic_launcher_foreground.png"
+            cp "icons/android/$d-round.png" "$RES/mipmap-$d/ic_launcher_round.png"
+          done
+          find "$RES" -name "splash.png" -exec cp icons/splash-android.png {} \;
+      - name: Sincronizar
+        run: npx cap sync android
+      - name: Compilar APK
+        working-directory: movil/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk ../pauta.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pauta-android
+          path: movil/pauta.apk
+
+  ios:
+    name: iPhone (IPA sin firmar)
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: movil
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Instalar Capacitor
+        run: npm install --no-audit --no-fund
+      - name: Crear proyecto iPhone
+        run: npx cap add ios
+      - name: Poner ícono y pantalla de inicio
+        run: |
+          A=ios/App/App/Assets.xcassets
+          cp icons/ios/AppIcon-1024.png "$A/AppIcon.appiconset/AppIcon-512@2x.png"
+          for f in "$A"/Splash.imageset/*.png; do cp icons/splash-2732.png "$f"; done
+      - name: Sincronizar
+        run: npx cap sync ios
+      - name: Compilar (sin firma de Apple)
+        run: |
+          xcodebuild -workspace ios/App/App.xcworkspace -scheme App -configuration Release \
+            -sdk iphoneos -destination "generic/platform=iOS" -archivePath build/App.xcarchive archive \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" | tail -n 40
+          mkdir -p Payload
+          cp -R build/App.xcarchive/Products/Applications/App.app Payload/
+          zip -qr pauta-iphone-sin-firmar.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pauta-iphone
+          path: movil/pauta-iphone-sin-firmar.ipa
+
+  publicar:
+    name: Publicar descargas
+    needs: [android, ios]
+    if: ${{ always() && needs.android.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: descargas
+      - name: Ordenar archivos
+        run: |
+          mkdir -p salida
+          cp descargas/pauta-android/pauta.apk salida/pauta.apk
+          if [ -f descargas/pauta-iphone/pauta-iphone-sin-firmar.ipa ]; then cp descargas/pauta-iphone/pauta-iphone-sin-firmar.ipa salida/; fi
+          ls -la salida
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: app-v1.${{ github.run_number }}
+          name: Pauta móvil 1.${{ github.run_number }}
+          make_latest: true
+          body: |
+            **Android:** descarga `pauta.apk` desde el celular y ábrela para instalar (permite "instalar apps de origen desconocido" si el teléfono lo pide).
+            **iPhone:** `pauta-iphone-sin-firmar.ipa` necesita firmarse con una cuenta de Apple para instalarse (ver README).
+            La app abre la versión publicada, así que se actualiza sola sin reinstalar.
+          files: salida/*
