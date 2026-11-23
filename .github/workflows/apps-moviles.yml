@@ -59,7 +59,7 @@ jobs:
 
   ios:
     name: iPhone (IPA sin firmar)
-    runs-on: macos-14
+    runs-on: macos-latest
     defaults:
       run:
         working-directory: movil
