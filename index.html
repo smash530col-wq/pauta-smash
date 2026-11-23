@@ -328,6 +328,13 @@ form input:focus{outline:2px solid var(--blue);outline-offset:1px;border-color:t
 .acct{position:absolute;right:max(16px,env(safe-area-inset-right,0px));top:calc(100% + 8px);width:min(340px,calc(100vw - 32px));background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px;box-shadow:var(--shadow);z-index:25}
 .acct-h{display:flex;justify-content:space-between;align-items:center}
 @media (max-width:640px){.top{position:relative}}
+.live-dot{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--ink-2);border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 10px;flex:0 0 auto}
+.live-dot i{width:8px;height:8px;border-radius:50%;background:var(--ink-3)}
+.live-dot.on i{background:var(--good);animation:livep 1.8s infinite}
+@keyframes livep{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--good) 55%,transparent)}100%{box-shadow:0 0 0 8px transparent}}
+.live-toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 14px);transform:translateX(-50%);z-index:40;background:var(--ink);color:var(--surface);padding:10px 16px;border-radius:999px;font-weight:600;font-size:14px;box-shadow:var(--shadow);animation:fadeUp .35s ease both;max-width:calc(100vw - 32px)}
+@keyframes fadeUp{from{opacity:0;transform:translate(-50%,-10px)}to{opacity:1;transform:translate(-50%,0)}}
+.acct .btn + .btn{margin-top:10px}
 
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
@@ -359,6 +366,7 @@ form input:focus{outline:2px solid var(--blue);outline-offset:1px;border-color:t
       <div><b>Pauta y redes</b><small>Informe diario · SMASH</small></div>
     </div>
     <nav class="days" id="days" aria-label="Elegir día"></nav>
+    <span class="live-dot" id="liveDot" title="En vivo: se actualiza solo cuando llega un informe"><i></i>En vivo</span>
     <button class="help-toggle" id="helpToggle" type="button" aria-pressed="true">Explicaciones <span class="sw" aria-hidden="true"></span></button>
     <button class="acct-btn" id="acctBtn" type="button" aria-expanded="false" aria-controls="acct" aria-label="Mi cuenta"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></button>
   </div>
@@ -375,6 +383,7 @@ form input:focus{outline:2px solid var(--blue);outline-offset:1px;border-color:t
       <button id="pwBtn" class="btn" type="submit">Guardar contraseña</button>
       <p id="pwMsg" class="f-msg" role="status"></p>
     </form>
+    <a class="btn" href="app/" style="text-align:center;text-decoration:none;background:var(--blue)">Abrir la app del celular</a>
     <button type="button" class="btn ghost" id="logout">Cerrar sesión</button>
   </div>
 </header>
@@ -387,6 +396,7 @@ form input:focus{outline:2px solid var(--blue);outline-offset:1px;border-color:t
 </main>
 </div>
 <div class="tip" id="tip" role="status" aria-live="polite"></div>
+<div class="live-toast" id="liveToast" role="status" aria-live="polite" hidden></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
@@ -1046,9 +1056,22 @@ form input:focus{outline:2px solid var(--blue);outline-offset:1px;border-color:t
     });
   });
 
+  // tiempo real: cuando llega o cambia un informe, la página se actualiza sola (igual que la app del celular)
+  var canal = null;
+  function conectarVivo(){
+    if (canal) sb.removeChannel(canal);
+    canal = sb.channel("pauta-dias-web").on("postgres_changes",{event:"*", schema:"public", table:"pauta_dias"}, function(ev){
+      var f = ev.new && ev.new.fecha;
+      if (f && (current === (DAYS[0] && DAYS[0].fecha))) current = null;   // si estabas en el más nuevo, salta al que llegó
+      cargar();
+      var t = document.getElementById("liveToast"); t.textContent = f ? "Llegó el informe del " + shortDate(f) : "Informe actualizado"; t.hidden = false;
+      clearTimeout(conectarVivo.t); conectarVivo.t = setTimeout(function(){ t.hidden = true; }, 4000);
+    }).subscribe(function(st){ document.getElementById("liveDot").classList.toggle("on", st === "SUBSCRIBED"); });
+  }
+
   sb.auth.onAuthStateChange(function(ev, session){
-    if (session){ showShell(); if (ev === "SIGNED_IN" || ev === "INITIAL_SESSION") cargar(); }
-    else { DAYS = []; current = null; app.textContent = ""; daysNav.textContent = ""; showLogin(); }
+    if (session){ showShell(); if (ev === "SIGNED_IN" || ev === "INITIAL_SESSION"){ cargar(); conectarVivo(); } }
+    else { DAYS = []; current = null; app.textContent = ""; daysNav.textContent = ""; if (canal){ sb.removeChannel(canal); canal = null; } showLogin(); }
   });
   document.addEventListener("visibilitychange", function(){ if (!document.hidden && !shell.hidden) cargar(); });
 })();
